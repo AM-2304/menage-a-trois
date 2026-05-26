@@ -195,3 +195,25 @@ branch=main
 repo_root=/Users/vasu/Documents/GitHub/menage-a-trois
 worktree=main
 parent_agent=none
+
+---
+
+## [2026-05-27T02:20:00+05:30] Final SOTA enhancements and full validation
+
+User Prompt (verbatim, secrets redacted):
+Tackle these first so no shortcoming remains to be pointed out, and then update the log, then we'll see about pushing to Git
+
+Agent Response Summary:
+Implemented the remaining P2 SOTA improvements. Added smart query construction that extracts questions from multi-turn conversations and caps at 250 characters to improve retrieval relevance. Added cross-ticket reference detection (regex for fake ticket IDs and agent names) to catch social engineering attempts. Added context window defense that truncates excessively long conversations (>8000 chars) while preserving the first and last 3 messages. Ran the full pipeline (89/89 passed, 143s, 0 errors).
+
+Actions:
+* Enhanced code/agent.py (smart query building, fake reference detection, context window defense)
+* Full 89-ticket rerun: PASS
+* Git commit: Final SOTA improvements
+
+Context:
+tool=Antigravity (Google DeepMind)
+branch=main
+repo_root=/Users/vasu/Documents/GitHub/menage-a-trois
+worktree=main
+parent_agent=none
