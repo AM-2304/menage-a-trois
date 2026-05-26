@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Support Triage Agent — Decision Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0f1a;--bg2:#111827;--bg3:#1a2332;
+  --navy:#1e293b;--navy-light:#334155;
+  --fuchsia:#d946ef;--fuchsia-dim:#a855f7;--fuchsia-glow:rgba(217,70,239,.15);
+  --text:#e2e8f0;--text-dim:#94a3b8;--text-muted:#64748b;
+  --glass:rgba(255,255,255,.04);--glass-border:rgba(255,255,255,.08);
+  --glass-hover:rgba(255,255,255,.08);
+  --green:#34d399;--amber:#fbbf24;--red:#f87171;--blue:#60a5fa;
+  --radius:12px;
+}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+.backdrop{position:fixed;top:-200px;left:-200px;width:600px;height:600px;background:radial-gradient(circle,rgba(217,70,239,.08),transparent 70%);pointer-events:none;z-index:0}
+.backdrop2{position:fixed;bottom:-300px;right:-200px;width:800px;height:800px;background:radial-gradient(circle,rgba(96,165,250,.05),transparent 70%);pointer-events:none;z-index:0}
+
+/* Glass panels */
+.glass{background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-border);border-radius:var(--radius);transition:all .2s ease}
+.glass:hover{background:var(--glass-hover);border-color:rgba(255,255,255,.12)}
+
+/* Header */
+header{padding:24px 32px;display:flex;align-items:center;justify-content:space-between;position:relative;z-index:1;border-bottom:1px solid var(--glass-border)}
+header h1{font-size:20px;font-weight:600;letter-spacing:-.5px}
+header h1 span{color:var(--fuchsia);font-weight:700}
+.header-meta{font-size:12px;color:var(--text-muted);font-weight:400}
+
+/* Layout */
+.container{max-width:1400px;margin:0 auto;padding:24px 32px;position:relative;z-index:1}
+.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:24px}
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+
+/* Stat cards */
+.stat-card{padding:20px;text-align:center;cursor:default}
+.stat-card .label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:8px}
+.stat-card .value{font-size:32px;font-weight:700;line-height:1}
+.stat-card .sub{font-size:12px;color:var(--text-dim);margin-top:4px}
+.stat-card.accent .value{color:var(--fuchsia)}
+
+/* Chart panels */
+.chart-panel{padding:20px}
+.chart-panel h3{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);margin-bottom:16px}
+.bar-group{display:flex;flex-direction:column;gap:10px}
+.bar-row{display:flex;align-items:center;gap:12px}
+.bar-label{width:80px;font-size:12px;color:var(--text-dim);text-align:right;flex-shrink:0}
+.bar-track{flex:1;height:28px;background:rgba(255,255,255,.03);border-radius:6px;overflow:hidden;position:relative}
+.bar-fill{height:100%;border-radius:6px;transition:width .8s cubic-bezier(.4,0,.2,1);display:flex;align-items:center;padding:0 10px}
+.bar-fill span{font-size:11px;font-weight:600;color:#fff;white-space:nowrap}
+.donut-wrap{display:flex;align-items:center;justify-content:center;gap:32px}
+.donut-legend{display:flex;flex-direction:column;gap:8px}
+.legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim)}
+.legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+
+/* Filter bar */
+.filter-bar{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
+.filter-bar input,.filter-bar select{background:var(--glass);border:1px solid var(--glass-border);color:var(--text);padding:8px 14px;border-radius:8px;font-size:13px;font-family:inherit;outline:none;transition:all .2s}
+.filter-bar input:focus,.filter-bar select:focus{border-color:var(--fuchsia);box-shadow:0 0 0 3px var(--fuchsia-glow)}
+.filter-bar input{flex:1;min-width:200px}
+.filter-bar select{cursor:pointer;-webkit-appearance:none;appearance:none;padding-right:28px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+.pill-btn{background:var(--glass);border:1px solid var(--glass-border);color:var(--text-dim);padding:6px 14px;border-radius:20px;font-size:12px;font-family:inherit;cursor:pointer;transition:all .2s}
+.pill-btn:hover,.pill-btn.active{background:var(--fuchsia-glow);border-color:var(--fuchsia);color:var(--fuchsia)}
+
+/* Table */
+.table-wrap{overflow-x:auto;margin-bottom:24px}
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+thead th{position:sticky;top:0;background:var(--bg2);padding:10px 12px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);border-bottom:1px solid var(--glass-border);cursor:pointer;white-space:nowrap;user-select:none}
+thead th:hover{color:var(--fuchsia)}
+thead th .sort-arrow{margin-left:4px;opacity:.4;font-size:10px}
+thead th.sorted .sort-arrow{opacity:1;color:var(--fuchsia)}
+tbody tr{transition:background .15s;cursor:pointer}
+tbody tr:hover{background:var(--glass-hover)}
+tbody tr.selected{background:var(--fuchsia-glow);border-left:2px solid var(--fuchsia)}
+tbody td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.03);white-space:nowrap;max-width:250px;overflow:hidden;text-overflow:ellipsis}
+
+/* Badges */
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.3px}
+.badge-replied{background:rgba(52,211,153,.12);color:var(--green)}
+.badge-escalated{background:rgba(248,113,113,.12);color:var(--red)}
+.badge-low{background:rgba(52,211,153,.1);color:var(--green)}
+.badge-medium{background:rgba(251,191,36,.1);color:var(--amber)}
+.badge-high{background:rgba(248,113,113,.1);color:var(--red)}
+.badge-critical{background:rgba(217,70,239,.12);color:var(--fuchsia)}
+
+/* Detail panel */
+.detail-panel{position:fixed;top:0;right:-520px;width:520px;height:100vh;background:var(--bg2);border-left:1px solid var(--glass-border);z-index:100;transition:right .35s cubic-bezier(.4,0,.2,1);overflow-y:auto;padding:0}
+.detail-panel.open{right:0;box-shadow:-20px 0 60px rgba(0,0,0,.5)}
+.detail-header{padding:20px 24px;border-bottom:1px solid var(--glass-border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg2);z-index:1}
+.detail-header h2{font-size:15px;font-weight:600;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.close-btn{background:none;border:1px solid var(--glass-border);color:var(--text-dim);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.close-btn:hover{border-color:var(--fuchsia);color:var(--fuchsia)}
+.detail-body{padding:20px 24px}
+.detail-section{margin-bottom:20px}
+.detail-section h4{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--fuchsia-dim);margin-bottom:8px}
+.detail-section p,.detail-section pre{font-size:13px;color:var(--text-dim);line-height:1.6}
+.detail-section pre{background:var(--glass);padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-word;font-family:'Inter',sans-serif;font-size:12px;max-height:300px;overflow-y:auto}
+.meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.meta-item{padding:10px;background:var(--glass);border-radius:8px}
+.meta-item .mk{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:2px}
+.meta-item .mv{font-size:14px;font-weight:600}
+
+/* Overlay */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99;opacity:0;pointer-events:none;transition:opacity .3s}
+.overlay.open{opacity:1;pointer-events:all}
+
+/* Confidence meter */
+.conf-meter{width:100%;height:8px;background:rgba(255,255,255,.05);border-radius:4px;overflow:hidden;margin-top:4px}
+.conf-fill{height:100%;border-radius:4px;transition:width .5s ease}
+
+/* Animations */
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.animate-in{animation:fadeUp .5s ease both}
+.delay-1{animation-delay:.1s}.delay-2{animation-delay:.2s}.delay-3{animation-delay:.3s}.delay-4{animation-delay:.4s}
+
+/* Responsive */
+@media(max-width:900px){
+  .stats-row{grid-template-columns:repeat(2,1fr)}
+  .charts-row{grid-template-columns:1fr}
+  .detail-panel{width:100%}
+}
+</style>
+</head>
+<body>
+<div class="backdrop"></div>
+<div class="backdrop2"></div>
+
+<header>
+  <h1>Support Triage <span>Agent</span></h1>
+  <div class="header-meta">Decision Intelligence Dashboard</div>
+</header>
+
+<div class="container">
+  <div class="stats-row" id="stats-row"></div>
+  <div class="charts-row">
+    <div class="glass chart-panel animate-in delay-2" id="chart-risk"><h3>Risk Distribution</h3><div class="bar-group" id="risk-bars"></div></div>
+    <div class="glass chart-panel animate-in delay-3" id="chart-status"><h3>Decision Breakdown</h3><div class="donut-wrap" id="status-donut"></div></div>
+  </div>
+  <div class="filter-bar" id="filter-bar"></div>
+  <div class="glass table-wrap animate-in delay-4"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+</div>
+
+<div class="overlay" id="overlay" onclick="closeDetail()"></div>
+<div class="detail-panel" id="detail-panel">
+  <div class="detail-header"><h2 id="detail-title"></h2><button class="close-btn" onclick="closeDetail()">&times;</button></div>
+  <div class="detail-body" id="detail-body"></div>
+</div>
+
+<script src="dashboard.js"></script>
+</body>
+</html>
