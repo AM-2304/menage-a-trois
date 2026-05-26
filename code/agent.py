@@ -607,7 +607,7 @@ Analyze this ticket and respond with ONLY a valid JSON object following the form
         retrieval_results: List[Tuple],
         full_text: str,
     ) -> Dict:
-        """Post-process LLM output: validate schema, paths, PII, etc."""
+        """Post-process LLM output: validate schema, paths, PII, escalation, tools, confidence."""
 
         # Ensure all required fields exist with valid values
         result.setdefault('status', 'escalated')
@@ -653,6 +653,16 @@ Analyze this ticket and respond with ONLY a valid JSON object following the form
             if result['risk_level'] in ('low', 'medium'):
                 result['risk_level'] = 'high'
 
+        # ── P0: Post-processing escalation override ──
+        # Catch cases where the LLM replied but should have escalated
+        self._escalation_override(result, full_text)
+
+        # ── P0: Tool call schema validation ──
+        self._validate_tool_calls(result)
+
+        # ── P1: Confidence post-adjustment based on retrieval quality ──
+        self._adjust_confidence(result, retrieval_results)
+
         # Ensure actions_taken is a JSON string
         actions = result['actions_taken']
         if isinstance(actions, list):
@@ -674,3 +684,149 @@ Analyze this ticket and respond with ONLY a valid JSON object following the form
         result['pii_detected'] = 'true' if pii_val == 'true' else 'false'
 
         return result
+
+    # ── Escalation override keywords ──────────────────────────────────────
+
+    _ESCALATION_KEYWORDS = {
+        'legal': [
+            r'\b(?:lawyer|attorney|legal\s+action|sue|lawsuit|litigation|court\s+order|subpoena)\b',
+            r'\b(?:regulatory|gdpr|hipaa|compliance\s+violation|data\s+protection\s+act)\b',
+            r'\b(?:class\s+action|consumer\s+protection|attorney\s+general)\b',
+        ],
+        'security': [
+            r'\b(?:identity\s+theft|stolen\s+identity|someone\s+(?:stole|hacked|accessed)\s+my)\b',
+            r'\b(?:account\s+(?:compromise|hacked|breached|stolen))\b',
+            r'\b(?:unauthorized\s+(?:access|transactions?|charges?))\b',
+            r'\b(?:fraud(?:ulent)?|suspicious\s+(?:activity|transactions?))\b',
+        ],
+        'safety': [
+            r'\b(?:self[\-\s]?harm|suicid|kill\s+(?:myself|me)|danger(?:ous)?\s+(?:advice|medical))\b',
+            r'\b(?:child\s+(?:abuse|exploitation|safety)|minor)\b',
+        ],
+    }
+
+    def _escalation_override(self, result: Dict, full_text: str) -> None:
+        """Override LLM decision to escalate when critical keywords are detected."""
+        if result['status'] == 'escalated':
+            return  # Already escalated, no change needed
+
+        text_lower = full_text.lower()
+        for dept, patterns in self._ESCALATION_KEYWORDS.items():
+            for pat in patterns:
+                if re.search(pat, text_lower):
+                    result['status'] = 'escalated'
+                    result['risk_level'] = 'high' if result['risk_level'] in ('low', 'medium') else result['risk_level']
+                    # Add escalation tool call if not present
+                    actions = result.get('actions_taken', [])
+                    if isinstance(actions, str):
+                        try:
+                            actions = json.loads(actions)
+                        except json.JSONDecodeError:
+                            actions = []
+                    has_escalate = any(
+                        isinstance(a, dict) and a.get('tool') == 'escalate_to_human'
+                        for a in actions
+                    )
+                    if not has_escalate:
+                        actions.append({
+                            "tool": "escalate_to_human",
+                            "parameters": {
+                                "priority": "high",
+                                "department": dept,
+                                "summary": f"Post-processing override: escalation keyword detected"
+                            }
+                        })
+                    result['actions_taken'] = actions
+                    return
+
+    # ── Tool call schema validation ───────────────────────────────────────
+
+    _VALID_TOOLS = {
+        'issue_refund': {'required': ['transaction_id', 'amount', 'reason']},
+        'reset_password': {'required': ['user_email']},
+        'lock_account': {'required': ['user_identifier', 'lock_reason']},
+        'escalate_to_human': {'required': ['priority', 'department', 'summary']},
+        'modify_subscription': {'required': ['user_id', 'action']},
+        'verify_identity': {'required': ['method', 'target']},
+    }
+
+    def _validate_tool_calls(self, result: Dict) -> None:
+        """Validate tool calls against schema and enforce prerequisite chains."""
+        actions = result.get('actions_taken', [])
+        if isinstance(actions, str):
+            try:
+                actions = json.loads(actions)
+            except json.JSONDecodeError:
+                result['actions_taken'] = []
+                return
+
+        if not isinstance(actions, list):
+            result['actions_taken'] = []
+            return
+
+        validated = []
+        has_verify = False
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            tool = action.get('tool', '')
+            if tool not in self._VALID_TOOLS:
+                continue  # Drop unknown tools
+
+            # Check required params
+            spec = self._VALID_TOOLS[tool]
+            params = action.get('parameters', {})
+            if not isinstance(params, dict):
+                params = {}
+
+            # Fill missing required params with placeholders
+            for req in spec['required']:
+                if req not in params:
+                    params[req] = 'required_by_policy'
+            action['parameters'] = params
+
+            if tool == 'verify_identity':
+                has_verify = True
+
+            validated.append(action)
+
+        # Prerequisite enforcement: destructive tools need verify_identity first
+        needs_verify = any(
+            a.get('tool') in ('issue_refund', 'modify_subscription', 'lock_account')
+            for a in validated
+        )
+        if needs_verify and not has_verify:
+            # Prepend verify_identity
+            validated.insert(0, {
+                "tool": "verify_identity",
+                "parameters": {"method": "email", "target": "user"}
+            })
+
+        result['actions_taken'] = validated
+
+    # ── Confidence post-adjustment ────────────────────────────────────────
+
+    def _adjust_confidence(self, result: Dict, retrieval_results: List[Tuple]) -> None:
+        """Adjust confidence based on retrieval quality — better calibration."""
+        try:
+            conf = float(result['confidence_score'])
+        except (ValueError, TypeError):
+            return
+
+        if not retrieval_results:
+            # No retrieval results → lower confidence
+            conf = min(conf, 0.55)
+        else:
+            top_score = retrieval_results[0][1] if retrieval_results else 0
+            # Very weak retrieval → cap confidence
+            if top_score < 0.03:
+                conf = min(conf, 0.50)
+            elif top_score < 0.05:
+                conf = min(conf, 0.70)
+
+        # Injection tickets: confidence in detection should be high
+        if result.get('request_type') == 'invalid':
+            conf = max(conf, 0.80)
+
+        result['confidence_score'] = round(conf, 2)
+

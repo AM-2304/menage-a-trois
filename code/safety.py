@@ -22,7 +22,29 @@ Detects:
 
 import re
 import base64
+import unicodedata
+import html as html_module
+from urllib.parse import unquote as url_unquote
 from typing import Dict, List, Tuple
+
+
+def _normalize_text(text: str) -> str:
+    """Normalize Unicode and strip invisible characters before scanning.
+    This catches homoglyph attacks, zero-width char insertion, and encoding tricks."""
+    # NFKD normalization: decomposes ligatures, converts fullwidth chars to ASCII
+    text = unicodedata.normalize('NFKD', text)
+    # Strip zero-width characters
+    text = re.sub(r'[\u200b\u200c\u200d\u200e\u200f\ufeff\u2060-\u2064]', '', text)
+    # Strip RTL/LTR overrides
+    text = re.sub(r'[\u202a-\u202e\u2066-\u2069]', '', text)
+    # Decode HTML entities
+    text = html_module.unescape(text)
+    # Decode URL-encoded sequences
+    try:
+        text = url_unquote(text)
+    except Exception:
+        pass
+    return text
 
 # ─── Prompt injection patterns ────────────────────────────────────────────────
 
@@ -177,6 +199,15 @@ PII_PATTERNS: List[Tuple[str, re.Pattern]] = [
     ("card_partial", re.compile(
         r'(?:card\s+(?:ending|number|#)\s*(?:in\s+)?[\d\-X*]{4,})',
         re.IGNORECASE)),
+
+    ("passport", re.compile(
+        r'\b[A-Z]{1,2}\d{6,9}\b')),
+
+    ("iban", re.compile(
+        r'\b[A-Z]{2}\d{2}\s?[A-Z0-9]{4}\s?\d{4}\s?\d{4}\s?\d{4}(?:\s?\d{0,4}){0,4}\b')),
+
+    ("ip_address", re.compile(
+        r'\b(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\b')),
 ]
 
 # ─── Multi-language injection patterns ─────────────────────────────────────────
@@ -209,18 +240,28 @@ EMBEDDED_INJECTION_RE = re.compile(
 )
 
 
-def _decode_base64_payloads(text: str) -> List[str]:
-    """Find and decode potential base64-encoded payloads."""
+def _decode_base64_payloads(text: str, max_depth: int = 3) -> List[str]:
+    """Find and decode potential base64-encoded payloads. Supports recursive decoding."""
     decoded = []
     for match in BASE64_RE.finditer(text):
         candidate = match.group()
-        try:
-            raw = base64.b64decode(candidate, validate=True)
-            decoded_str = raw.decode('utf-8', errors='ignore')
-            if len(decoded_str) >= 5 and any(c.isalpha() for c in decoded_str):
-                decoded.append(decoded_str)
-        except Exception:
-            continue
+        # Recursive decoding for double/triple-encoded payloads
+        current = candidate
+        for _ in range(max_depth):
+            try:
+                raw = base64.b64decode(current, validate=True)
+                decoded_str = raw.decode('utf-8', errors='ignore')
+                if len(decoded_str) >= 5 and any(c.isalpha() for c in decoded_str):
+                    decoded.append(decoded_str)
+                    # Check if result is itself base64
+                    if BASE64_RE.fullmatch(decoded_str.strip()):
+                        current = decoded_str.strip()
+                    else:
+                        break
+                else:
+                    break
+            except Exception:
+                break
     return decoded
 
 
@@ -239,6 +280,7 @@ def _has_unicode_tricks(text: str) -> bool:
 def scan_injection(text: str) -> Dict:
     """
     Run all injection detection patterns against text.
+    Applies Unicode normalization before scanning to catch encoding tricks.
 
     Returns dict with:
       - is_injection: bool
@@ -246,12 +288,17 @@ def scan_injection(text: str) -> Dict:
       - injection_score: 0.0-1.0 severity
       - details: list of human-readable findings
     """
+    # Normalize text to catch encoding evasion
+    normalized = _normalize_text(text)
+    # Scan both original (for raw pattern matches) and normalized
+    scan_text = normalized if normalized != text else text
+
     findings: List[str] = []
     matched_types: List[str] = []
 
-    # 1. Check compiled injection patterns
+    # 1. Check compiled injection patterns (on BOTH original and normalized)
     for name, pattern in INJECTION_PATTERNS:
-        if pattern.search(text):
+        if pattern.search(text) or pattern.search(scan_text):
             matched_types.append(name)
             findings.append(f"Injection pattern matched: {name}")
 
@@ -261,24 +308,25 @@ def scan_injection(text: str) -> Dict:
         matched_types.append("csv_injection")
         findings.append("CSV/formula injection detected")
 
-    # 3. Check base64-encoded payloads
-    decoded_payloads = _decode_base64_payloads(text)
+    # 3. Check base64-encoded payloads (recursive decoding)
+    decoded_payloads = _decode_base64_payloads(text) + _decode_base64_payloads(scan_text)
     for payload in decoded_payloads:
         payload_lower = payload.lower()
         if any(kw in payload_lower for kw in [
             'ignore', 'override', 'system', 'prompt', 'instruction',
-            'previous', 'pwned', 'hack', 'inject', 'bypass',
+            'previous', 'pwned', 'hack', 'inject', 'bypass', 'admin',
+            'execute', 'reveal', 'disclose', 'dump', 'extract',
         ]):
             matched_types.append("base64_injection")
             findings.append(f"Base64-encoded injection: '{payload[:80]}...'")
 
-    # 4. Check multi-language injection
-    if MULTI_LANG_INJECTION.search(text):
+    # 4. Check multi-language injection (both original and normalized)
+    if MULTI_LANG_INJECTION.search(text) or MULTI_LANG_INJECTION.search(scan_text):
         matched_types.append("multilingual_injection")
         findings.append("Multi-language injection pattern detected")
 
     # 5. Check embedded injection after legitimate content
-    if EMBEDDED_INJECTION_RE.search(text):
+    if EMBEDDED_INJECTION_RE.search(text) or EMBEDDED_INJECTION_RE.search(scan_text):
         matched_types.append("embedded_injection")
         findings.append("Embedded injection after legitimate content")
 
