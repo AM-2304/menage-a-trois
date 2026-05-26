@@ -8,5 +8,8 @@ groq>=0.9.0
 # AWS Bedrock support (for Anthropic Bedrock bearer tokens)
 boto3>=1.34.0
 
+# LSA embeddings (Latent Semantic Analysis via SVD)
+numpy>=1.24.0
+
 # Environment variable loading (optional — main.py has built-in .env parser)
 python-dotenv>=1.0.0
