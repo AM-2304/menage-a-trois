@@ -124,6 +124,40 @@ tbody td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.03);white-s
 .animate-in{animation:fadeUp .5s ease both}
 .delay-1{animation-delay:.1s}.delay-2{animation-delay:.2s}.delay-3{animation-delay:.3s}.delay-4{animation-delay:.4s}
 
+/* Custom Pointer Animation */
+* { cursor: none !important; } /* Hide default cursor */
+.custom-cursor {
+  position: fixed;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--fuchsia);
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  z-index: 10000;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s ease;
+  mix-blend-mode: screen;
+}
+.custom-cursor::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px; height: 4px;
+  background: var(--fuchsia);
+  border-radius: 50%;
+  transition: opacity 0.2s;
+}
+.custom-cursor.hover {
+  width: 48px;
+  height: 48px;
+  background-color: var(--fuchsia-glow);
+  border-color: rgba(217, 70, 239, 0.5);
+}
+.custom-cursor.hover::after {
+  opacity: 0;
+}
+
 /* Responsive */
 @media(max-width:900px){
   .stats-row{grid-template-columns:repeat(2,1fr)}
@@ -158,5 +192,45 @@ tbody td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.03);white-s
 </div>
 
 <script src="dashboard.js"></script>
+<script>
+// Custom Cursor Logic
+const cursor = document.createElement('div');
+cursor.className = 'custom-cursor';
+document.body.appendChild(cursor);
+
+let cursorX = window.innerWidth / 2;
+let cursorY = window.innerHeight / 2;
+let tgX = cursorX;
+let tgY = cursorY;
+
+document.addEventListener('mousemove', (e) => {
+  tgX = e.clientX;
+  tgY = e.clientY;
+});
+
+// Smooth follow
+function updateCursor() {
+  cursorX += (tgX - cursorX) * 0.3;
+  cursorY += (tgY - cursorY) * 0.3;
+  cursor.style.left = cursorX + 'px';
+  cursor.style.top = cursorY + 'px';
+  requestAnimationFrame(updateCursor);
+}
+updateCursor();
+
+// Add hover states dynamically since table re-renders
+document.body.addEventListener('mouseover', (e) => {
+  const interactive = e.target.closest('button, select, input, tr, th, .stat-card, .close-btn');
+  if (interactive) {
+    cursor.classList.add('hover');
+  }
+});
+document.body.addEventListener('mouseout', (e) => {
+  const interactive = e.target.closest('button, select, input, tr, th, .stat-card, .close-btn');
+  if (interactive) {
+    cursor.classList.remove('hover');
+  }
+});
+</script>
 </body>
 </html>
