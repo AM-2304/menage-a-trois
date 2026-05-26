@@ -45,10 +45,13 @@ The agent uses a **multi-stage pipeline** with clear separation of concerns: ret
                            │
               ┌────────────▼────────────┐
               │   Hybrid Retrieval      │   ← retriever.py
-              │  • BM25 scoring         │
+              │  • BM25+ scoring        │
               │  • TF-IDF cosine sim    │
-              │  • Reciprocal Rank      │
-              │    Fusion (RRF)         │
+              │  • LSA embeddings (SVD) │
+              │  • Suffix stemming      │
+              │  • Bigram phrase match  │
+              │  • Document chunking    │
+              │  • 3-way RRF fusion     │
               │  • Product-hint boost   │
               └────────────┬────────────┘
                            │
@@ -91,29 +94,36 @@ We chose a **multi-stage pipeline over an agentic framework** (LangChain, LlamaI
 2. **Speed**: Pre-LLM filtering avoids unnecessary LLM calls. Index builds once, retrieves in <50ms.
 3. **Debuggability**: Each stage logs its decisions, making it easy to trace why a ticket was classified a certain way.
 4. **Adversarial robustness**: Safety scanning happens BEFORE the LLM sees the input, preventing the LLM from being influenced by injections.
-5. **No external dependencies**: Retrieval uses only Python stdlib (math, collections, re). No vector databases, no embedding APIs.
+5. **No external APIs**: Retrieval uses numpy (for LSA/SVD) but no vector databases, no embedding APIs, no model downloads.
 
 ---
 
 ## 2. Component Design
 
-### 2.1 `retriever.py` — Hybrid BM25 + TF-IDF Retrieval
+### 2.1 `retriever.py` — Enhanced Hybrid Retrieval (BM25+ · TF-IDF · LSA)
 
 | Property | Value |
 |---|---|
 | Documents indexed | 790 .md files from `data/` |
-| Index build time | ~0.67s |
-| Search latency | 7-44ms per query |
-| External dependencies | None (Python stdlib only) |
-| Deterministic | Yes (sorted file walks, fixed params) |
+| Passage chunks | 2,975 overlapping passages (300-token windows) |
+| LSA embedding dimensions | 128 (via SVD on TF-IDF matrix) |
+| Index build time | ~5.6s (includes SVD computation) |
+| Search latency | 40-350ms per query |
+| External dependencies | numpy (for SVD/LSA) |
+| Deterministic | Yes (sorted walks, fixed params, fixed SVD) |
 
 **Architecture:**
 - Scans `data/` recursively for `.md` files in sorted order (deterministic)
 - Tokenizes with regex `[a-z0-9]+`, removes 200+ English stopwords
-- Builds inverted index for BM25 and term-frequency vectors for TF-IDF
-- At query time, computes both BM25 and TF-IDF cosine scores
-- Combines via Reciprocal Rank Fusion (k=60) for robust ranking
-- Applies 1.5x product-hint boost for documents matching inferred product
+- **Suffix stemmer** with domain exception list (prevents over-stemming: "payment" stays "payment")
+- **Bigram indexing** for phrase matching ("reset_password" matches as a unit)
+- **BM25+ inverted index** (delta=1.0 lower-bound correction for long documents)
+- **TF-IDF vectors** for cosine similarity
+- **LSA embeddings** via SVD: 790×V TF-IDF matrix → 790×128 dense vectors capturing latent semantic relationships
+- **Document chunking**: Long docs split into 300-token passages with 100-token overlap (2,975 total chunks)
+- **Three-way Reciprocal Rank Fusion** (k=60): BM25+ + TF-IDF + LSA rankings combined
+- **Passage-level boost**: Documents scored by best-matching chunk
+- **Product-hint boost**: 1.5x for documents matching inferred product subdirectory
 
 ### 2.2 `safety.py` — Pre-LLM Adversarial Scanner
 
@@ -191,24 +201,52 @@ Rule-based fallback (no LLM, deterministic)
 
 ## 3. Retrieval Strategy
 
-### Why Hybrid BM25 + TF-IDF with RRF?
+### Why Three-Way Hybrid (BM25+ · TF-IDF · LSA)?
 
 We evaluated several approaches:
 
 | Approach | Pros | Cons | Decision |
 |---|---|---|---|
-| Pure BM25 | Fast, deterministic, no deps | Misses semantic matches | ❌ |
-| Vector embeddings (FAISS) | Good semantic matching | Requires embedding API, non-deterministic | ❌ |
-| TF-IDF cosine | Good for topical matching | Weak on exact term matching | ❌ |
-| **Hybrid BM25 + TF-IDF + RRF** | **Best of both, deterministic, no deps** | Slightly more complex | ✅ |
+| Pure BM25 | Fast, deterministic | Misses semantic matches | ❌ |
+| BM25+ | Fixes long-doc penalty | Still keyword-only | Partial ✅ |
+| TF-IDF cosine | Good topical matching | Weak on exact terms | Partial ✅ |
+| FAISS/vector DB | Good semantic matching | External API, non-deterministic | ❌ |
+| sentence-transformers | Best semantic quality | ~500MB model download, slow | ❌ |
+| HyDE (hypothetical docs) | Creative approach | Extra LLM call per query | ❌ |
+| Cross-encoder reranking | Best reranking | LLM call per candidate doc | ❌ |
+| **LSA via SVD** | **Captures latent semantics** | **Needs numpy** | ✅ |
+| **Three-way RRF** | **Robust fusion** | **Slightly more complex** | ✅ |
 
-**BM25** excels at finding documents with exact query terms (e.g., "reset password" → password reset docs). **TF-IDF cosine** excels at topical relevance even without exact term overlap. **Reciprocal Rank Fusion** combines both rankings robustly without needing learned weights.
+Each method captures different signal:
+- **BM25+** excels at exact term matching ("reset password" → password reset docs)
+- **TF-IDF cosine** captures topical relevance without exact overlap
+- **LSA embeddings** capture latent semantic relationships ("card blocked" ↔ "transaction declined")
+- **Reciprocal Rank Fusion** combines all three without needing learned weights
+
+### BM25+ vs Standard BM25
+
+Standard BM25 has a known bug: for very long documents, the term frequency contribution can approach zero even when the term appears. **BM25+** adds a `delta` parameter (we use δ=1.0) that guarantees a minimum positive contribution, fixing this lower-bound issue.
+
+### LSA (Latent Semantic Analysis) Embeddings
+
+We compute dense 128-dimensional document embeddings using SVD on the TF-IDF matrix:
+1. Build TF-IDF matrix (790 docs × V vocabulary terms)
+2. L2-normalize rows
+3. Apply SVD: `U, S, Vt = svd(TF-IDF)` 
+4. Document embeddings = `U[:, :128] * S[:128]` (790 × 128 dense vectors)
+5. At query time, project query into LSA space: `q_lsa = q_tfidf @ Vt.T`
+6. Cosine similarity between query and document LSA vectors
+
+This captures latent semantic relationships that keyword methods miss, all without any external embedding API or model download.
+
+### Stemming & Bigrams
+
+- **Suffix stemmer** with 20+ suffix rules and domain exception list ("subscription", "payment", "transaction" etc. preserved intact)
+- **Bigram indexing**: "reset password" generates the bigram token `reset_password` which boosts documents containing that exact phrase
 
 ### Product-Hint Boosting
 
-When the agent infers a product (from `company` field or content analysis), documents from the matching `data/` subdirectory receive a **1.5x score boost**. This dramatically improves relevance:
-- "Reset my DevPlatform password" → DevPlatform password docs (not Claude or Visa)
-- "Visa card blocked while traveling" → Visa travel support docs
+When the agent infers a product (from `company` field or content analysis), documents from the matching `data/` subdirectory receive a **1.5x score boost**.
 
 ### Path Validation
 
@@ -399,7 +437,9 @@ The system prompt includes explicit calibration guidance:
 
 | Component | How determinism is achieved |
 |---|---|
-| Retrieval | Sorted file walks, fixed BM25 params (k1=1.5, b=0.75), fixed RRF (k=60) |
+| Retrieval | Sorted file walks, fixed BM25+ params (k1=1.5, b=0.75, δ=1.0), fixed RRF (k=60), numpy SVD is deterministic |
+| LSA embeddings | SVD on fixed TF-IDF matrix produces identical embeddings every run |
+| Stemmer | Fixed suffix rules + exception list, no learned model |
 | Safety scanner | Compiled regex patterns, no randomness |
 | Language detection | Fixed Unicode ranges + keyword lists |
 | Product inference | Deterministic keyword counting |
