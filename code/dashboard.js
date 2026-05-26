@@ -172,27 +172,42 @@ function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 function renderFilters() {
   const el = document.getElementById('filter-bar');
   el.innerHTML = `
-    <input type="text" placeholder="Search tickets..." oninput="setFilter('search',this.value)" id="f-search">
-    <select onchange="setFilter('status',this.value)">
+    <div class="search-wrap">
+      <input type="text" placeholder="Search tickets..." oninput="setFilter('search',this.value)" id="f-search">
+      <button class="clear-search" id="clear-search-btn" onclick="clearSearch()" title="Clear search">&times;</button>
+    </div>
+    <select onchange="setFilter('status',this.value)" id="f-status">
       <option value="">All Status</option><option value="replied">Replied</option><option value="escalated">Escalated</option>
     </select>
-    <select onchange="setFilter('risk',this.value)">
+    <select onchange="setFilter('risk',this.value)" id="f-risk">
       <option value="">All Risk</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
     </select>
-    <select onchange="setFilter('product',this.value)">
+    <select onchange="setFilter('product',this.value)" id="f-product">
       <option value="">All Products</option><option value="devplatform">DevPlatform</option><option value="claude">Claude</option><option value="visa">Visa</option>
     </select>
     <button class="pill-btn" onclick="resetFilters()">Reset</button>`;
 }
 
+function clearSearch() {
+  const input = document.getElementById('f-search');
+  input.value = '';
+  setFilter('search', '');
+}
+
 function setFilter(key, val) {
   FILTERS[key] = val.toLowerCase();
+  if (key === 'search') {
+    const btn = document.getElementById('clear-search-btn');
+    if (btn) btn.style.display = val ? 'block' : 'none';
+  }
   renderTable();
 }
 
 function resetFilters() {
   FILTERS = { search: '', status: '', risk: '', product: '' };
   document.querySelectorAll('.filter-bar input, .filter-bar select').forEach(el => el.value = '');
+  const btn = document.getElementById('clear-search-btn');
+  if (btn) btn.style.display = 'none';
   renderTable();
 }
 
