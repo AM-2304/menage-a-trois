@@ -1,0 +1,24 @@
+ee199ab Update development log with final validation step
+79f367f Dashboard UI: Add custom animated mouse pointer
+2712657 Update development log
+1966509 Update development log
+e162522 Dashboard UI: add search clear button and interactive hover animations
+28dbde6 Add checklist.md evaluating implementation against problem statement
+de6fe9b Update output.csv
+93d206b Update development log with final validation run
+90039ae Update development log with final SOTA enhancements
+467fc03 Add final SOTA improvements: smart query building, fake reference detection, context window defense
+da81817 Update agent.py
+be91b6e Update development log with SOTA hardening session
+40efc74 SOTA hardening: Unicode normalization, escalation override, tool validation
+b7cefc1 Add interactive Web UI dashboard (bonus feature)
+ff72980 Update ARCHITECTURE.md with enhanced retrieval documentation
+bb069e1 Upgrade retrieval: BM25+ scoring, LSA embeddings, stemming, bigrams, chunking
+73edb25 Add ARCHITECTURE.md, README.md, and development log
+cca4d70 Add output.csv: 89/89 tickets processed, validation PASS
+fa30195 Add Groq/Claude triage agent and CLI with resume support
+1da2216 Add BM25+TF-IDF hybrid retrieval and adversarial safety scanner
+db4ccc0 Remove results announced date
+e162ec0 Update deadline to 1 week and replace AI judge with 1-on-1 interview
+99a0e0e Update submission instructions with Google Forms link
+ec78098 Initial commit: MLE Hiring Challenge Template (10/10 Difficulty)
