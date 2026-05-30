@@ -1,6 +1,6 @@
 # MLE Hiring Challenge
 
-Starter repository for the **MLE Hiring Challenge** (24-hour window).
+Starter repository for the **MLE Hiring Challenge**.
 
 Build a terminal-based AI agent that triages real support tickets across three product ecosystems — **DevPlatform**, **Claude**, and **Visa** — using only the support corpus shipped in this repo.
 
