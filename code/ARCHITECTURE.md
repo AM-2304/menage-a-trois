@@ -254,10 +254,14 @@ All `source_documents` paths are validated against the actual corpus before outp
 
 ### Corpus Quality Handling
 
-Per the problem statement, corpus documents may contain contradictions or outdated information. Our approach:
-- Retrieve top-5 documents (not just top-1) so the LLM can cross-reference
-- The system prompt instructs the LLM to "prefer more specific documents over general ones"
-- Confidence is lowered when retrieval scores are weak or sources disagree
+Per the problem statement, corpus documents may contain contradictions or outdated information. Our approach addresses this systematically:
+1. **Multi-source Retrieval**: We retrieve the top-5 documents (not just top-1) so the LLM has complete context to cross-reference and validate claims.
+2. **Embedded Conflict Resolution**: The system prompt instructs the LLM to follow explicit synthesis rules:
+   - **Specificity Preference**: Prefer specific policies/documents over general ones when contradictions arise.
+   - **Recency Evaluation**: Look for timestamps, metadata, or dates within document text to prioritize newer information over older policies.
+   - **Verification Skepticism**: Exercise skepticism toward documents that appear overly convenient or comprehensive; verify claims across multiple retrieved sources rather than blindly trusting the first match.
+   - **Cross-Referencing Claims**: Cross-reference and validate all factual statements across multiple retrieved documents before presenting them.
+   - **Confidence Calibration**: Automatically flag low confidence (lower the `confidence_score`) whenever sources disagree, conflict, or have incomplete coverage.
 
 ---
 
