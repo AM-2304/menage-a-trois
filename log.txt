@@ -626,3 +626,24 @@ branch=main
 repo_root=/Users/vasu/Documents/GitHub/menage-a-trois
 worktree=main
 parent_agent=none
+
+---
+
+## [2026-05-30T19:56:10+05:30] Explanation of shell redirection
+
+User Prompt (verbatim, secrets redacted):
+ 2>&1 
+what does this command do ?
+
+Agent Response Summary:
+Explained to the user that '2>&1' is a shell redirection operator which redirects standard error (2) into standard output (1), allowing both regular output and error messages to be captured in a single stream.
+
+Actions:
+* Appended interaction log to log.txt
+
+Context:
+tool=Antigravity (Google DeepMind)
+branch=main
+repo_root=/Users/vasu/Documents/GitHub/menage-a-trois
+worktree=main
+parent_agent=none
