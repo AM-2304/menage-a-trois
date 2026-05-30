@@ -1,3 +1,5 @@
+92a0549 Update ARCHITECTURE.md
+20e68f9 Add verification checklist and strengthen safety & corpus rules
 ee199ab Update development log with final validation step
 79f367f Dashboard UI: Add custom animated mouse pointer
 2712657 Update development log
